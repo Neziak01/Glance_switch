@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+models/
+*.part
+.pytest_cache/
+packaging/glance_switch.ico

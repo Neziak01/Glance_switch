@@ -1,0 +1,4 @@
+# mediapipe pulls in opencv-contrib-python, numpy and matplotlib.
+mediapipe==1.1.0
+pystray==0.19.5
+pillow==12.3.0

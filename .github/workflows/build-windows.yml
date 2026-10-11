@@ -1,0 +1,66 @@
+name: build-windows
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - name: Import every module (Win32 bindings, Tk, tray)
+        run: python -c "import glance_switch.app, glance_switch.win32 as w; print(w.monitors())"
+      - run: python packaging/prepare_build.py
+      - run: python -m glance_switch --selftest
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python packaging/prepare_build.py
+      - run: pyinstaller --noconfirm packaging/GlanceSwitch.spec
+      - name: Smoke-test the packaged exe
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\GlanceSwitch\GlanceSwitch.exe -ArgumentList "--selftest" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:APPDATA\GlanceSwitch\glance_switch.log" -ErrorAction SilentlyContinue; exit 1 }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path glance_switch\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" packaging\GlanceSwitch.iss
+          Compress-Archive -Path dist\GlanceSwitch -DestinationPath "dist\GlanceSwitch-$version-portable.zip"
+          Get-ChildItem dist\*.exe, dist\*.zip | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content dist\SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GlanceSwitch-windows
+          path: |
+            dist/GlanceSwitch-Setup-*.exe
+            dist/GlanceSwitch-*-portable.zip
+            dist/SHA256SUMS.txt
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/GlanceSwitch-Setup-*.exe
+            dist/GlanceSwitch-*-portable.zip
+            dist/SHA256SUMS.txt
