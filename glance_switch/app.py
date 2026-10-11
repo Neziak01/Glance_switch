@@ -7,6 +7,7 @@ tracker, input hook and tray threads only post to `self.commands`.
 from __future__ import annotations
 
 import logging
+import math
 import queue
 import time
 import tkinter as tk
@@ -25,6 +26,8 @@ log = logging.getLogger(__name__)
 
 POLL_MS = 40
 STALE_S = 0.5  # ignore gaze samples older than this
+CYCLE_S = 2.5  # a second double tap within this delay tries the next candidate
+KEEP_SHARE = 0.6  # gaze this sure of the focused window means "stay here"
 
 
 class App:
@@ -47,6 +50,9 @@ class App:
         self.flash = Flash(self.root)
         self.calibration: Optional[Calibration] = None
         self.cursor_memory: dict[int, tuple[float, float]] = {}
+        self._candidates: list[win32.Window] = []
+        self._last_switch = -1e9
+        self._last_gaze: tuple[float, float] = (0.0, 0.0)
 
     # --- thread-safe entry points -------------------------------------------
     def _post_status(self, msg: str) -> None:
@@ -124,6 +130,52 @@ class App:
         if fired is not None and target is not None:
             self._focus(target)
 
+    def _switch(self) -> None:
+        """Double-tap handler: focus the window being looked at."""
+        now = time.monotonic()
+        fg = win32.foreground_window()
+        gaze = self.tracker.recent_gaze() or self._fresh_gaze()
+        model = self.tracker.model
+        sigma = min(max(model.error_px if model else 150.0, 60.0), 400.0)
+
+        # Wrong guess? Tapping again right away, still looking at the same
+        # area, walks down the candidate list.
+        same_spot = gaze is None or math.dist(gaze, self._last_gaze) < 2 * sigma
+        if now - self._last_switch < CYCLE_S and self._candidates and same_spot:
+            nxt = next((w for w in self._candidates if w.hwnd != fg and win32.is_window(w.hwnd)), None)
+            self._candidates = [w for w in self._candidates if w is not nxt]
+            if nxt is not None:
+                log.info("cycle -> %r", nxt.title)
+                self._last_switch = now
+                self._focus(nxt)
+            return
+
+        if gaze is None:
+            log.info("switch ignored: no recent gaze")
+            return
+        self._last_gaze = gaze
+        windows = win32.windows_z_order()
+        monitors = win32.monitors()
+        if self.settings.target_mode == "screen":
+            target = targeting.pick_target(windows, monitors, *gaze, mode="screen")
+            ranked = [(target, 1.0)] if target is not None else []
+        else:
+            ranked = targeting.rank_targets(windows, monitors, *gaze, sigma=sigma)
+            if not ranked:  # looking at bare desktop: take that screen's top window
+                fallback = targeting.pick_target(windows, monitors, *gaze, mode="screen")
+                ranked = [(fallback, 1.0)] if fallback is not None else []
+        log.info(
+            "switch at (%.0f, %.0f): %s",
+            *gaze,
+            ", ".join(f"{w.title[:30]!r}={share:.2f}" for w, share in ranked[:4]) or "nothing",
+        )
+        if ranked and ranked[0][0].hwnd == fg and ranked[0][1] >= KEEP_SHARE:
+            return  # clearly looking at the window that already has focus
+        self._candidates = [w for w, _ in ranked if w.hwnd != fg]
+        if self._candidates:
+            self._last_switch = now
+            self._focus(self._candidates.pop(0))
+
     def _target_at(self, x: float, y: float) -> Optional[win32.Window]:
         return targeting.pick_target(
             win32.windows_z_order(), win32.monitors(), x, y, self.settings.target_mode
@@ -160,14 +212,8 @@ class App:
         name, *args = cmd
         s = self.settings
         if name == "switch":
-            if not s.enabled or not s.trigger_double_ctrl or self.calibration:
-                return
-            gaze = self._fresh_gaze()
-            if gaze is None:
-                return
-            target = self._target_at(*gaze)
-            if target is not None:
-                self._focus(target)
+            if s.enabled and s.trigger_double_ctrl and not self.calibration:
+                self._switch()
         elif name == "status":
             self.status = args[0]
             self.tray.refresh(self.status)

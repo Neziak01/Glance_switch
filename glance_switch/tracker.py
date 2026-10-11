@@ -7,6 +7,7 @@ import logging
 import sys
 import threading
 import time
+from collections import deque
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +67,7 @@ class Tracker:
         self.model: Optional[GazeModel] = None
         self.latest: Optional[Sample] = None
         self._filter = PointFilter()
+        self._history: deque[tuple[float, float, float]] = deque(maxlen=60)  # t, x, y (raw)
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._paused = threading.Event()
@@ -100,10 +102,25 @@ class Tracker:
         with self._lock:
             self.model = model
             self._filter.reset()
+            self._history.clear()
 
     def get_latest(self) -> Optional[Sample]:
         with self._lock:
             return self.latest
+
+    def recent_gaze(self, window_s: float = 0.4) -> Optional[tuple[float, float]]:
+        """Median of the raw gaze estimates over the last `window_s` seconds.
+
+        Steadier than a single frame when a trigger fires, and unlike the
+        smoothed point it carries no lag from where the eyes were before.
+        """
+        cutoff = time.monotonic() - window_s
+        with self._lock:
+            pts = [(x, y) for t, x, y in self._history if t >= cutoff]
+        if len(pts) < 3:
+            return None
+        arr = np.asarray(pts)
+        return float(np.median(arr[:, 0])), float(np.median(arr[:, 1]))
 
     # --- loop --------------------------------------------------------------
     def _run(self) -> None:
@@ -148,8 +165,9 @@ class Tracker:
         if not cap.isOpened():
             cap.release()
             return None
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        # More pixels on the eyes = steadier iris landmarks.
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         cap.set(cv2.CAP_PROP_FPS, 30)
         return cap
 
@@ -197,6 +215,7 @@ class Tracker:
             gaze = None
             if vec is not None and self.model is not None:
                 gx, gy = self.model.predict(vec)
+                self._history.append((now, gx, gy))
                 gaze = self._filter(gx, gy, now)
             elif vec is None:
                 self._filter.reset()

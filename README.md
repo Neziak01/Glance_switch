@@ -14,8 +14,10 @@ C'est une version Windows de l'idée de [glanceswitch.com](https://glanceswitch.
 2. Ces mesures (rotation et position de la tête, position des iris dans les yeux)
    sont converties en point sur le bureau grâce à une **calibration** propre à
    vous et à votre installation (régression ridge, filtre One Euro pour lisser).
-3. Au déclenchement, GlanceSwitch trouve la fenêtre sous ce point, la passe au
-   premier plan et y replace la souris, là où vous l'aviez laissée.
+3. Au déclenchement, GlanceSwitch classe les fenêtres selon la part de la
+   zone d'incertitude du regard qui tombe sur leur partie visible. La meilleure,
+   autre que la fenêtre active, passe au premier plan, et la souris y revient
+   là où vous l'aviez laissée.
 
 Tout se passe sur votre PC. Aucune image n'est enregistrée ni envoyée.
 
@@ -24,7 +26,8 @@ Tout se passe sur votre PC. Aucune image n'est enregistrée ni envoyée.
 - **Multi-écrans** et **fenêtres d'un même écran**.
 - Déclencheurs :
   - **Double `Ctrl`** (par défaut). Les raccourcis comme `Ctrl+C` ou `Ctrl+clic`
-    ne déclenchent rien.
+    ne déclenchent rien. Mauvaise fenêtre ? Refaites un double `Ctrl` dans les
+    2,5 s, sans bouger le regard : GlanceSwitch passe à la suivante.
   - **Regard prolongé (dwell)** : fixer une fenêtre ~0,7 s suffit. Mis en pause
     pendant un glisser-déposer.
 - Cible : **fenêtre regardée** ou **écran regardé** (la fenêtre du dessus de cet
@@ -57,7 +60,8 @@ Configuration requise : Windows 10 ou 11 (64 bits) et une webcam.
    écrans ou votre chaise.
 
 Conseils : caméra au-dessus ou sous l'écran principal, visage bien éclairé, pas
-de contre-jour.
+de contre-jour. Tourner légèrement la tête vers la fenêtre visée, plutôt que
+seulement les yeux, améliore nettement la précision.
 
 ## Depuis les sources
 

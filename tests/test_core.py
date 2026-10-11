@@ -206,3 +206,37 @@ def test_settings_roundtrip_and_validation(tmp_path):
     assert loaded.target_mode == "window"
     assert loaded.dwell_ms == 200
     assert loaded.move_mouse is True
+
+
+def test_rank_targets_prefers_small_front_window_near_gaze():
+    monitors = [W(rect=(0, 0, 1920, 1080))]
+    front = W(rect=(200, 200, 700, 700), hwnd=1)
+    back = W(rect=(0, 0, 1920, 1080), hwnd=2)
+    ranked = targeting.rank_targets([front, back], monitors, 450, 450, sigma=150)
+    assert ranked[0][0] is front
+    assert sum(share for _, share in ranked) == pytest.approx(1.0)
+    # Estimate lands just outside the front window: it still gets real weight.
+    ranked = targeting.rank_targets([front, back], monitors, 760, 450, sigma=150)
+    assert front in [w for w, _ in ranked]
+
+
+def test_rank_targets_side_by_side_and_empty():
+    monitors = [W(rect=(0, 0, 1920, 1080))]
+    left = W(rect=(0, 0, 960, 1080), hwnd=1)
+    right = W(rect=(960, 0, 1920, 1080), hwnd=2)
+    ranked = targeting.rank_targets([left, right], monitors, 1400, 500, sigma=200)
+    assert ranked[0][0] is right and ranked[0][1] > 0.9
+    assert targeting.rank_targets([], monitors, 10, 10, sigma=100) == []
+
+
+def test_tracker_recent_gaze_median(monkeypatch):
+    from glance_switch import tracker as tracker_mod
+
+    t = tracker_mod.Tracker()
+    now = 100.0
+    monkeypatch.setattr(tracker_mod.time, "monotonic", lambda: now)
+    assert t.recent_gaze() is None
+    for i, (x, y) in enumerate([(10, 10), (12, 11), (500, 500), (11, 12)]):
+        t._history.append((now - 0.3 + i * 0.05, x, y))
+    t._history.appendleft((now - 5, 9999, 9999))  # too old, ignored
+    assert t.recent_gaze() == (11.5, 11.5)

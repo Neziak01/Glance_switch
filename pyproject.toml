@@ -1,6 +1,6 @@
 [project]
 name = "glance-switch"
-version = "0.1.0"
+version = "0.1.1"
 description = "Focus follows your eyes: switch Windows windows and screens by looking at them."
 requires-python = ">=3.10"
 dependencies = ["mediapipe==1.1.0", "pystray==0.19.5", "pillow==12.3.0"]

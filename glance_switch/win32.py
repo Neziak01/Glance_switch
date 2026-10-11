@@ -303,8 +303,8 @@ def _is_switchable(hwnd: int, own_pid: int) -> bool:
     if pid.value == own_pid:
         return False
     ex = _get_exstyle(hwnd)
-    if ex & WS_EX_NOACTIVATE:
-        return False
+    if ex & (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT):
+        return False  # click-through overlays (game/GPU HUDs) are never targets
     if ex & WS_EX_TOOLWINDOW and not ex & WS_EX_APPWINDOW:
         return False
     if _class_name(hwnd) in SHELL_CLASSES or _is_cloaked(hwnd):
